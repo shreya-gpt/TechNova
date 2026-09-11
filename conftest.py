@@ -1,16 +1,15 @@
 """
 Root-level pytest configuration.
 
-This inserts the `backend/` folder onto sys.path so that test files can do
-plain imports like `from schemas import ...` or `from pipeline import ...`,
-exactly the same way `main.py` does when you run uvicorn from inside the
-`backend/` folder. This keeps import style consistent between "running the
-app" and "running the tests" without needing to turn the project into a
-formally installed package.
+pytest.ini's `pythonpath = .` already puts the repository root on sys.path
+for modern pytest. This file is kept as a defensive fallback (e.g. for
+older pytest versions or unusual invocation setups) so `import backend`
+reliably works no matter where pytest is launched from, as long as it's
+launched from (or below) the repository root.
 """
 import os
 import sys
 
-BACKEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backend")
-if BACKEND_DIR not in sys.path:
-    sys.path.insert(0, BACKEND_DIR)
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
