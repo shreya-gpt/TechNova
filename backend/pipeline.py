@@ -81,7 +81,7 @@ def run_risk_pipeline(request: RiskAnalysisRequest) -> FinalRiskIntelligence:
 
     risk = calculate_risk(request.environmental, request.terrain, request.satellite)
 
-    impact = assess_impact(risk, request.infrastructure)
+    impact = assess_impact(risk, request.location.latitude, request.location.longitude)
 
     decision = recommend_actions(risk, impact)
 
