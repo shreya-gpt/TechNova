@@ -1,235 +1,123 @@
-# NER Landslide Risk Intelligence — Backend / Integration Layer
+# Satellite Intelligence & Computer Vision Module
+### AI-Based Early Warning and Landslide Risk Monitoring System — North Eastern Region (NER), India
+### Smart India Hackathon — Satellite & Computer Vision Sub-System
 
-Central backend for the SIH 2026 "AI-powered Landslide Risk Intelligence and
-Early Warning Platform" for the North Eastern Region (NER) of India.
+This repository implements the **Satellite Intelligence and Computer Vision pipeline**
+that continuously analyses Sentinel-1 SAR and Sentinel-2 optical imagery to produce
+explainable, machine-readable satellite-derived evidence of landslide risk. It is
+designed to be one input stream that is fused, by a separate central AI Risk Engine,
+with rainfall, soil moisture, slope, geology and historical-landslide data — **this
+module never issues a final landslide alert on its own**.
 
-This is the **integration lead's part** of a 6-person team: it does not
-build the weather, GIS, satellite, risk-model, or frontend modules — it
-provides the pipeline and API that combines their outputs into one
-coherent flow:
+---
 
-```
-Environmental + Terrain + Satellite + Infrastructure data
-        -> data quality assessment
-        -> risk score (weighted baseline model)
-        -> uncertainty / confidence
-        -> explanation (top contributing factors)
-        -> impact assessment (affected infrastructure/population)
-        -> recommended actions
-        -> FinalRiskIntelligence (+ feedback loop for future calibration)
-```
-
-## Status of the risk model
-
-**The risk engine (`backend/services/risk_service.py`) is a transparent,
-weighted-factor PROTOTYPE — not a scientifically validated landslide
-model.** It exists so the full pipeline is runnable and demoable today.
-All weights and thresholds are documented and isolated in
-`backend/config.py` so the real model can be swapped in later.
-
-## Architecture
+## 1. What this module does
 
 ```
-backend/
-├── main.py              FastAPI app + routes
-├── schemas.py            Pydantic data contract (shared by all modules)
-├── pipeline.py            run_risk_pipeline() — orchestrates the services
-├── config.py              Weights, thresholds, normalization ranges (documented placeholders)
-├── mock_data.py           Realistic NER example (used by /risk/example and tests)
-├── data/
-│   └── feedback.json      Local feedback/calibration-dataset storage
-└── services/
-    ├── risk_service.py     Risk score, uncertainty, explainability
-    ├── impact_service.py    Rule-based infrastructure/population exposure
-    ├── decision_service.py  Rule-based advisory recommendations
-    └── feedback_service.py  Feedback storage (Prediction -> Observation -> Feedback -> Dataset)
-
-tests/
-├── test_pipeline.py       Pipeline + API endpoint tests
-├── test_risk_service.py    Risk engine unit tests
-└── test_feedback.py        Feedback storage unit tests
-
-docs/
-└── data_contract.md        Full schema reference for teammates
-
-conftest.py                 Lets tests import backend/ modules directly
-requirements.txt
+Satellite Data Acquisition
+   → Preprocessing (calibration, terrain correction, cloud masking)
+   → Image Registration (co-registration of time-series scenes)
+   → Feature Extraction (spectral indices + SAR backscatter/coherence)
+   → Change Detection (bi-temporal / Siamese difference model)
+   → Landslide Segmentation (U-Net binary mask + confidence)
+   → SAR/InSAR Deformation Analysis (phase → displacement proxy)
+   → Satellite Risk Indicators (per-AOI engineered feature vector)
+   → JSON / GeoJSON output → Central AI Risk Engine + GIS dashboard
 ```
 
-Every service function takes and returns plain Pydantic objects from
-`schemas.py`. To plug in a teammate's real module later, you only need to
-replace the *inside* of one service file (e.g. `risk_service.calculate_risk`)
-— `pipeline.py` and `main.py` never need to change.
+See `docs/architecture.md` for the full Mermaid architecture diagram and a
+stage-by-stage breakdown (input / processing / output / tech / compute cost).
 
-## Install (Windows 11 + VS Code, PowerShell)
+## 2. Repository layout
 
-```powershell
-# From the project root (ner-landslide-backend/)
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+```
+landslide-satellite-cv/
+├── config/
+│   └── config.yaml              # AOI, thresholds, model paths, API settings
+├── src/
+│   ├── data_acquisition/        # Sentinel-1 / Sentinel-2 fetch (GEE / SentinelHub)
+│   ├── preprocessing/           # registration, cloud/noise masking
+│   ├── features/                # NDVI/NDWI/NBR + SAR feature engineering
+│   ├── change_detection/        # bi-temporal difference + candidate regions
+│   ├── segmentation/            # U-Net landslide segmentation model + training
+│   ├── sar_insar/               # simplified InSAR deformation pipeline
+│   ├── risk_indicators/         # fuses everything into the output schema
+│   ├── api/                     # FastAPI service exposing the module
+│   ├── gis/                     # GeoJSON / GeoTIFF / PostGIS export helpers
+│   └── utils/                   # geo utilities shared across stages
+├── tests/                       # pytest unit tests for every stage
+├── scripts/
+│   ├── run_pipeline.py          # end-to-end CLI pipeline runner
+│   └── demo.py                  # synthetic before/after demo (no internet needed)
+├── docs/
+│   └── architecture.md          # Mermaid diagram + stage-by-stage design notes
+├── requirements.txt
+└── README.md
 ```
 
-If PowerShell blocks the activation script, run this once as your user
-(not admin), then retry:
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-## Run the API
-
-```powershell
-cd backend
-uvicorn main:app --reload
-```
-
-The API will be live at `http://127.0.0.1:8000`. Interactive docs (Swagger
-UI) are automatically available at `http://127.0.0.1:8000/docs`.
-
-## Run the tests
-
-From the project root (not inside `backend/`):
-
-```powershell
-pytest tests/ -v
-```
-
-All 21 tests should pass. `conftest.py` at the project root makes the
-`backend/` modules importable for the test files.
-
-## API endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/health` | Liveness check |
-| POST | `/risk/analyze` | Run the full pipeline on a submitted `RiskAnalysisRequest` |
-| GET | `/risk/example` | Run the pipeline on the built-in NER mock example |
-| POST | `/feedback` | Submit field-observation feedback |
-| GET | `/feedback` | List all stored feedback records |
-
-Full schema reference: `docs/data_contract.md`.
-
-## Example request
-
-```powershell
-Invoke-RestMethod -Uri http://127.0.0.1:8000/risk/example -Method GET | ConvertTo-Json -Depth 10
-```
-
-or with curl:
+## 3. Quick start
 
 ```bash
-curl http://127.0.0.1:8000/risk/example
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Run the self-contained demo (generates synthetic before/after tiles,
+# runs the full pipeline, prints the output schema, writes a GeoJSON)
+python scripts/demo.py
+
+# Run the API
+uvicorn src.api.main:app --reload --port 8000
+# then POST a scene pair to http://localhost:8000/analyze
 ```
 
-## Example response (abbreviated)
+Run tests:
+
+```bash
+pytest -v
+```
+
+## 4. Hackathon MVP scope
+
+| Priority | Feature |
+|---|---|
+| **MUST HAVE** | Sentinel-2 NDVI/NDWI/NBR feature extraction, bi-temporal change detection, U-Net segmentation on a small labeled/synthetic set, JSON output schema, FastAPI `/analyze` endpoint, GeoJSON export |
+| **SHOULD HAVE** | Sentinel-1 backscatter change as a cloud-independent fallback, simplified InSAR-style deformation proxy, confidence scoring, PostGIS-ready export |
+| **NICE TO HAVE** | True SNAP-based InSAR, embeddings for the risk engine, active-learning loop for scarce labels, road/debris object detector |
+
+## 5. Output schema (module → central AI Risk Engine)
+
+See `src/api/schemas.py` for the authoritative Pydantic model. Summary:
 
 ```json
 {
-  "location": {
-    "latitude": 25.284,
-    "longitude": 91.7273,
-    "district": "East Khasi Hills",
-    "state": "Meghalaya"
-  },
-  "risk": {
-    "risk_score": 76.42,
-    "risk_level": "CRITICAL",
-    "uncertainty": 0.05,
-    "confidence": 0.95,
-    "top_factors": [
-      "high soil moisture/saturation",
-      "elevated 24-hour rainfall",
-      "high cumulative 72-hour rainfall"
-    ],
-    "explanation": "Risk is CRITICAL primarily because of high soil moisture/saturation, elevated 24-hour rainfall, and high cumulative 72-hour rainfall."
-  },
-  "impact": {
-    "affected_roads": 9,
-    "affected_bridges": 3,
-    "affected_settlements": 5,
-    "estimated_population": 3150,
-    "impact_level": "SEVERE"
-  },
-  "decision": {
-    "recommended_actions": [
-      "Conduct immediate field verification of slope stability.",
-      "Activate evacuation preparedness for at-risk settlements.",
-      "Assess and consider precautionary traffic restrictions on nearby roads.",
-      "Initiate emergency coordination with district/state disaster response teams."
-    ],
-    "urgency": "IMMEDIATE",
-    "rationale": "Risk level is CRITICAL (score 76.42/100, confidence 0.95). ..."
-  },
-  "data_quality": {
-    "completeness_score": 1.0,
-    "missing_fields": [],
-    "satellite_available": true
-  },
-  "feedback_status": "PENDING"
+  "aoi_id": "NER-MEG-0142",
+  "latitude": 25.5788,
+  "longitude": 91.8933,
+  "observation_date": "2026-09-10",
+  "change_score": 0.71,
+  "landslide_cv_probability": 0.63,
+  "vegetation_loss": 0.24,
+  "ndvi_delta": -0.31,
+  "ndwi_delta": 0.05,
+  "surface_displacement_mm": 18.4,
+  "water_accumulation_score": 0.42,
+  "road_disruption_score": 0.10,
+  "confidence": 0.78,
+  "data_sources": ["sentinel-2", "sentinel-1"],
+  "explanation": ["18% vegetation loss detected", "..."]
 }
 ```
 
-### Example: analyzing a custom location (PowerShell)
+## 6. Notes on realism for a hackathon build
 
-```powershell
-$body = @{
-  location = @{ latitude = 25.57; longitude = 94.10; district = "Kohima"; state = "Nagaland" }
-  environmental = @{ rainfall_24h = 90; rainfall_72h = 160; forecast_rainfall = 40; soil_moisture = 55 }
-  terrain = @{ slope = 25; elevation = 1200; geology = "moderately_weathered"; historical_landslide_density = 2 }
-  satellite = @{ satellite_available = $false }
-  infrastructure = @{ roads = 8; bridges = 1; settlements = 3; hospitals = 1; schools = 1; estimated_population = 2200 }
-} | ConvertTo-Json -Depth 10
-
-Invoke-RestMethod -Uri http://127.0.0.1:8000/risk/analyze -Method POST -Body $body -ContentType "application/json"
-```
-
-### Example: submitting feedback (PowerShell)
-
-```powershell
-$feedback = @{
-  prediction_id = "demo-001"
-  location = @{ latitude = 25.284; longitude = 91.7273; district = "East Khasi Hills"; state = "Meghalaya" }
-  predicted_risk_level = "CRITICAL"
-  observed_condition = "Field team confirmed active surface cracking and minor debris flow."
-  landslide_occurred = $true
-  notes = "Evacuation of 2 households completed as precaution."
-} | ConvertTo-Json
-
-Invoke-RestMethod -Uri http://127.0.0.1:8000/feedback -Method POST -Body $feedback -ContentType "application/json"
-```
-
-## How teammates plug their modules in
-
-The whole point of this layer is that nobody has to rewrite it once real
-modules exist. Concretely:
-
-- **Weather/hydrology teammate** — their module should end up producing an
-  `EnvironmentalData` object (see `docs/data_contract.md`). Wherever they
-  currently print/return rainfall numbers, wrap them into that model
-  instead. That object slots directly into a `RiskAnalysisRequest`.
-
-- **GIS teammate (terrain + infrastructure)** — same pattern for
-  `TerrainData` and `Infrastructure`. Once they have a real risk-zone
-  polygon and asset layer, `services/impact_service.py` is the *only* file
-  that needs to change — replace the placeholder exposure-fraction logic
-  with a real spatial intersection (the `TODO` comment marks exactly where).
-
-- **Satellite teammate** — produces `SatelliteData`. If a pass wasn't
-  available, they just set `satellite_available=False`; the uncertainty
-  model already reacts to that automatically.
-
-- **Risk-model teammate (the real ML/statistical model)** — replace the
-  body of `services/risk_service.calculate_risk()` with a call into their
-  model, but keep returning a `RiskResult` with the same fields
-  (`risk_score`, `risk_level`, `uncertainty`, `confidence`, `top_factors`,
-  `explanation`). Nothing in `pipeline.py` or `main.py` needs to change.
-
-- **Frontend teammate** — consumes `FinalRiskIntelligence` JSON from
-  `POST /risk/analyze` / `GET /risk/example`, and can post to `/feedback`
-  from a field-observation form. Swagger UI at `/docs` is a live reference
-  while building against this API.
-
-In all cases: as long as a teammate's module returns something that
-validates against the matching Pydantic model in `schemas.py`, it can
-replace the corresponding mock/service without touching the rest of the
-system.
+- Actual Sentinel-1 InSAR normally requires ESA SNAP / GAMMA and multi-pass
+  processing that is too heavy for a hackathon timeframe. `src/sar_insar/deformation.py`
+  implements a **simplified, clearly-labeled proxy** (coherence-loss + phase-delta
+  simulation) that demonstrates the concept and the output contract; swapping in a
+  real SNAP-based backend later requires no change to the downstream schema.
+- `scripts/demo.py` works fully offline using synthetically generated raster tiles,
+  so the whole pipeline can be demoed without live satellite credentials.
+- Real acquisition (`src/data_acquisition/sentinel_downloader.py`) is written
+  against the Google Earth Engine Python API and Copernicus Open Access Hub as
+  the two most hackathon-friendly sources; both require free-tier credentials.
