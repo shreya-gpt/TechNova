@@ -1,61 +1,85 @@
 """
 services/impact_service.py
 ===========================
-PROTOTYPE impact assessment.
+Impact assessment using real GIS spatial intersection.
 
-Real implementation (future): take the risk zone geometry (e.g. a buffer or
-modeled runout polygon around the location, produced by the GIS teammate's
-module) and perform an actual spatial intersection against a roads/bridges/
-settlements/population layer to find exactly which assets fall inside it.
-
-For now, since we don't have real geometries yet, we use a simple rule-based
-"exposure fraction" driven by risk level: the higher the risk, the larger the
-fraction of nearby infrastructure we assume could plausibly be affected. This
-keeps the pipeline runnable and the output shape correct, while making it
-obvious this must be replaced with real spatial logic later.
+Takes the predicted landslide location and risk level, builds a risk-zone
+polygon (see GIS/risk_zone.py), and intersects it against real roads/
+bridges/settlements data (see GIS/impact_zone.py) to determine actual
+affected assets — replacing the earlier placeholder exposure-fraction logic.
 """
 
 from __future__ import annotations
 
-import math
-
-from config import IMPACT_EXPOSURE_FRACTION
-from schemas import ImpactLevel, ImpactResult, Infrastructure, RiskResult
+import sys
+import os
 
 
-def assess_impact(risk: RiskResult, infrastructure: Infrastructure) -> ImpactResult:
+def _find_project_root(marker_folder="GIS", start_path=None):
+    """Walk upward from this file's location until a folder containing
+    `marker_folder` is found, and return that parent path."""
+    current = os.path.abspath(start_path or os.path.dirname(__file__))
+    while True:
+        if os.path.isdir(os.path.join(current, marker_folder)):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            raise RuntimeError(f"Could not find a '{marker_folder}' folder above {__file__}")
+        current = parent
+
+
+PROJECT_ROOT = _find_project_root("GIS")
+sys.path.append(PROJECT_ROOT)
+
+from schemas import ImpactLevel, ImpactResult, RiskResult
+from GIS.risk_zone import create_risk_zone
+from GIS.impact_zone import compute_impact as _gis_compute_impact
+
+INFRA_DATA_DIR = os.path.join(PROJECT_ROOT, "data", "infrastructure")
+
+
+def assess_impact(
+    risk: RiskResult,
+    latitude: float,
+    longitude: float,
+    radius_km: float = 1.0,
+) -> ImpactResult:
     """
-    PLACEHOLDER for real GIS spatial-intersection logic.
-
-    TODO (future teammate integration): replace `fraction` below with an
-    actual polygon/buffer intersection against real asset locations.
+    Builds a risk-zone polygon around (latitude, longitude) and performs
+    real spatial intersection against roads/bridges/settlements to produce
+    the actual ImpactResult.
     """
-    fraction = IMPACT_EXPOSURE_FRACTION[risk.risk_level.value]
-
-    affected_roads = math.ceil(infrastructure.roads * fraction)
-    affected_bridges = math.ceil(infrastructure.bridges * fraction)
-    affected_settlements = math.ceil(infrastructure.settlements * fraction)
-    affected_population = math.ceil(infrastructure.estimated_population * fraction)
-
-    impact_level = _impact_level_from_population(affected_population, fraction)
-
-    return ImpactResult(
-        affected_roads=affected_roads,
-        affected_bridges=affected_bridges,
-        affected_settlements=affected_settlements,
-        estimated_population=affected_population,
-        impact_level=impact_level,
+    zone = create_risk_zone(
+        latitude=latitude,
+        longitude=longitude,
+        risk_level=risk.risk_level.value,
+        radius_km=radius_km,
     )
 
+    gis_result = _gis_compute_impact(zone, INFRA_DATA_DIR)
 
-def _impact_level_from_population(affected_population: int, fraction: float) -> ImpactLevel:
-    """Simple prototype mapping from exposure fraction/affected population to
-    an impact category. Kept independent of risk_level so that impact can
-    later diverge from raw risk once real population/asset density is used."""
-    if fraction == 0.0 or affected_population == 0:
-        return ImpactLevel.NEGLIGIBLE
-    if fraction < 0.20:
-        return ImpactLevel.LOW
-    if fraction < 0.50:
-        return ImpactLevel.MODERATE
-    return ImpactLevel.SEVERE
+    return ImpactResult(
+        affected_roads=gis_result.affected_roads,
+        affected_bridges=gis_result.affected_bridges,
+        affected_settlements=gis_result.affected_settlements,
+        estimated_population=gis_result.estimated_population,
+        impact_level=ImpactLevel(gis_result.impact_level),
+    )
+
+if __name__ == "__main__":
+    from schemas import RiskLevel
+
+    # Dummy risk result for testing
+    test_risk = RiskResult(
+        risk_score=70,
+        risk_level=RiskLevel.HIGH,
+        uncertainty=0.2,
+        confidence=0.8,
+        top_factors=["steep slope"],
+        explanation="Test run"
+    )
+
+    test_lat, test_lon = 27.30, 92.40
+
+    result = assess_impact(test_risk, test_lat, test_lon, radius_km=1.0)
+    print(result)

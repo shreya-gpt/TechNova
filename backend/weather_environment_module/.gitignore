@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+*.pem
+
+# Database
+data/*.db
+data/environmental_data.db
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/

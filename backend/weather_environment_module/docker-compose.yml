@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  weather-environment-module:
+    build: .
+    container_name: weather_environment_module
+    ports:
+      - "8000:8000"
+    environment:
+      - DEMO_MODE=true
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=sqlite:///./data/environmental_data.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

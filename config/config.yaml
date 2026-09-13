@@ -1,0 +1,62 @@
+# ==========================================================
+# Satellite & Computer Vision Module — Configuration
+# ==========================================================
+
+project:
+  name: "NER Landslide Early Warning — Satellite & CV Module"
+  region: "North Eastern Region, India"
+  crs: "EPSG:4326"
+
+data_sources:
+  sentinel2:
+    collection: "COPERNICUS/S2_SR_HARMONIZED"
+    bands: ["B2", "B3", "B4", "B8", "B11", "B12"]   # blue, green, red, NIR, SWIR1, SWIR2
+    cloud_cover_max_pct: 30
+  sentinel1:
+    collection: "COPERNICUS/S1_GRD"
+    polarization: ["VV", "VH"]
+    orbit: "DESCENDING"
+
+preprocessing:
+  target_resolution_m: 10
+  cloud_mask_method: "s2cloudless"       # or "qa60"
+  registration_method: "phase_correlation"
+  speckle_filter: "lee"                  # for SAR
+  speckle_window: 5
+
+change_detection:
+  method: "difference_cva"               # change vector analysis
+  ndvi_drop_threshold: 0.15
+  min_change_area_px: 25
+  candidate_confidence_threshold: 0.5
+
+segmentation:
+  model: "unet"
+  input_size: [256, 256]
+  in_channels: 6                         # optical bands + derived indices
+  num_classes: 1                         # binary landslide mask
+  checkpoint_path: "data/models/unet_landslide.pt"
+  probability_threshold: 0.5
+
+sar_insar:
+  coherence_threshold: 0.3
+  displacement_alert_mm: 10.0
+  wavelength_mm: 55.6                    # Sentinel-1 C-band wavelength (~5.6 cm)
+
+risk_indicators:
+  weights:
+    change_score: 0.30
+    landslide_cv_probability: 0.35
+    vegetation_loss: 0.15
+    surface_displacement: 0.15
+    water_accumulation: 0.05
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+
+gis:
+  output_formats: ["geojson", "geotiff"]
+  postgis:
+    enabled: false
+    dsn: "postgresql://user:password@localhost:5432/landslide_gis"
